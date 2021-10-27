@@ -597,7 +597,7 @@ def sendemail(emailtxt,data,entry):
   port = 465  # For SSL
   smtp_server = "smtp.gmail.com"
   sender_email = "noreply.incdata@gmail.com"  # Enter your address
-  password = "Buffs2021!"
+  password = "#######"   # password hashed for public access
 
   # get date info
   import os.path, time
