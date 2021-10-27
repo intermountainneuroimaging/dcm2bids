@@ -11,8 +11,8 @@
       "Study": [
         {
           "name": "cbdx",
-          "scanner_regexp": "/pl/active/ics/data/archive/human/dicom/prisma_fit/rkaiser/cbdx_200125/",
-          "bids": "/pl/active/kaiser/studies/cbdx/BIDS",
+          "scanner_regexp": "XXX",
+          "bids": "XXX",
           "design": "longitudinal",
           "bids_pattern": "sub-cbd{subject}[s{session}]/[{type}/]sub-cbd{subject}[s{session}][_task-{task}][_acq-{acquisition}][_rec-{reconstruction}][_run-{run}][_echo-{echo}][_dir-{direction}][_space-{space}][_desc-{desc}]_{suffix}.nii.gz"
         }
