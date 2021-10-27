@@ -1,0 +1,113 @@
+{
+  "Study Contact": [
+    {
+      "name": "Amy Hegarty",
+      "email": "amy.hegarty@colorado.edu",
+      "identikey": ""
+    }
+  ],
+  "Acquisition": [
+    {
+      "Study": [
+        {
+          "name": "rray",
+          "scanner_regexp": "/pl/active/ics/data/archive/human/dicom/prisma_fit/rkaiser/rray_200108/",
+          "bids": "/pl/active/kaiser/studies/rray/BIDS",
+          "design": "longitudinal",
+          "bids_pattern": "sub-r{subject}[s{session}]/[{type}/]sub-r{subject}[s{session}][_task-{task}][_acq-{acquisition}][_rec-{reconstruction}][_run-{run}][_echo-{echo}][_dir-{direction}][_space-{space}][_desc-{desc}]_{suffix}.nii.gz"
+        }
+      ],
+      "Subject": [
+        {
+          "name": "Subject",
+          "scanner_regexp": "M803?????",
+          "bids": "sub-",
+          "digits": 3
+        }
+      ],
+      "Session": [
+        {
+          "name": "Session",
+          "scanner_regexp": "Study*",
+          "bids": "ses-",
+          "digits": 1
+        }
+      ],
+      "anat": [
+        {
+          "name": "t1w",
+          "nAcquisitions": "1",
+          "scanner_regexp": "t1w_32ch_mpr_08mm",
+          "bids": "sub-< >_ses-< >_T1w",
+          "suffix": "T1w"
+        }
+      ],
+      "func": [
+        {
+          "name": "rest",
+          "nAcquisitions": "1",
+          "scanner_regexp": "RRAY_fMRI_rest",
+          "bids": "sub-< >_ses-< >_task-rest_acq-MB_run-< >_bold",
+          "run": "n",
+          "task": "rest",
+          "acquisition": "MB",
+          "suffix": "bold",
+          "length": 600
+        },
+        {
+          "name": "emotion",
+          "nAcquisitions": "1",
+          "scanner_regexp": "EMOTION_NBACK_fMRI",
+          "bids": "sub-< >_ses-< >_task-emot_acq-MB_run-< >_bold",
+          "run": "n", 
+          "task": "emot",
+          "acquisition": "MB",
+          "suffix": "bold",
+          "length": 720
+        },
+        {
+          "name": "nback",
+          "nAcquisitions": "1",
+          "scanner_regexp": "NEUTRAL_NBACK_fMRI",
+          "bids": "sub-< >_ses-< >_task-neut_acq-MB_run-< >_bold",
+          "run": "n", 
+          "task": "neut",
+          "acquisition": "MB",
+          "suffix": "bold",
+          "length": 720
+        },
+        {
+          "name": "dice",
+          "nAcquisitions": "1",
+          "scanner_regexp": "DICE_GAME_fMRI",
+          "bids": "sub-< >_ses-< >_task-dice_acq-MB_run-< >_bold",
+          "run": "n", 
+          "task": "dice",
+          "acquisition": "MB",
+          "suffix": "bold",
+          "length": 1010
+        }
+      ],
+      "fmap": [
+        {
+          "name": "AP",
+          "nAcquisitions": "1",
+          "scanner_regexp": "RRAY_fMRI_DistortionMap_AP",
+          "bids": "sub-< >_ses-< >_dir-AP_epi",
+          "direction": "AP",
+          "suffix": "epi",
+          "length": 60
+        },
+        {
+          "name": "PA",
+          "nAcquisitions": "1",
+          "scanner_regexp": "RRAY_fMRI_DistortionMap_PA",
+          "bids": "sub-< >_ses-< >_dir-PA_epi",
+          "direction": "PA",
+          "suffix": "epi",
+          "length": 60
+        }
+      ]
+    }
+  ]
+}
