@@ -11,8 +11,8 @@
       "Study": [
         {
           "name": "cbdx",
-          "scanner_regexp": "XXX",
-          "bids": "XXX",
+          "scanner_regexp": "<path to raw dicoms>",
+          "bids": "<path to bids directory>",
           "design": "longitudinal",
           "bids_pattern": "sub-cbd{subject}[s{session}]/[{type}/]sub-cbd{subject}[s{session}][_task-{task}][_acq-{acquisition}][_rec-{reconstruction}][_run-{run}][_echo-{echo}][_dir-{direction}][_space-{space}][_desc-{desc}]_{suffix}.nii.gz"
         }
