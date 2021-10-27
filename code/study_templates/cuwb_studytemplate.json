@@ -11,8 +11,8 @@
       "Study": [
         {
           "name": "cuwb",
-          "scanner_regexp": "/pl/active/ics/data/archive/human/dicom/prisma_fit/rkaiser/cuwb_200119/",
-          "bids": "/pl/active/kaiser/studies/cuwb/BIDS",
+          "scanner_regexp": "<path to raw dicoms>",
+          "bids": "<path to bids directory>",
           "design": "cross-sectional",
           "bids_pattern": "sub-cwb{subject}/[{type}/]sub-cwb{subject}[_task-{task}][_acq-{acquisition}][_rec-{reconstruction}][_run-{run}][_echo-{echo}][_dir-{direction}][_space-{space}][_desc-{desc}]_{suffix}.nii.gz"
         }
