@@ -35,7 +35,7 @@ def print_help():
           -t --trange                 time range (days) for dicom retreival (range starts today)
           -c --nifti-convert          (default false) run conversion to nifti for
                                       scanner dicoms. Output in bids format
-
+          -l --subject-id-key         provide a key for M803 number and subject ids (overrides accession #)
     ** OpenMP used for parellelized execution of XXX. Multiple cores (CPUs) 
        are recommended (XX cpus for each fmri scan).
        
@@ -58,10 +58,11 @@ def parse_arguments(argv):
     #intialize arguements
     print("\nParsing User Inputs...")
     runconvert = False
+    pidkey = ""
     wd=os.popen('echo $HOME/scratch').read().rstrip()
 
     try:
-      opts, args = getopt.getopt(argv,"hi:t:c",["template=","trange=","help","nifti-convert"])
+      opts, args = getopt.getopt(argv,"hi:t:l:c",["template=","trange=","help","nifti-convert","subject-id-key="])
     except getopt.GetoptError:
       print_help()
       sys.exit(2)
@@ -76,7 +77,9 @@ def parse_arguments(argv):
       elif opt in ("-t", "--trange"):
          trange = arg
       elif opt in ("-c","--nifti-convert"):
-         runconvert = True                            
+         runconvert = True 
+      elif opt in ("-l","--subject-id-key"):  
+         pidkey = arg                            
     if 'bidstemplate' not in locals():
       print_help()
       raise Exception("Missing required argument -i [--template]")
@@ -87,14 +90,15 @@ def parse_arguments(argv):
       sys.exit()
 
     class args:
-      def __init__(self, wd, bidstemplate, trange, runconvert):
+      def __init__(self, wd, bidstemplate, trange, runconvert,pidkey):
         self.wd = wd
         self.bidstemplate = bidstemplate
         self.trange = trange
         self.runconvert = runconvert
+        self.pidkey = pidkey
         self.templates = "/projects/amhe4269/banichlab_ldrc_preproc/inc_resources/scanner_check/v2.0/"
 
-    entry = args(wd, bidstemplate, trange, runconvert)
+    entry = args(wd, bidstemplate, trange, runconvert,pidkey)
 
     return entry
 
@@ -153,11 +157,23 @@ def heuristic(entry):
   heuristic.strexp=heuristic.scannerpath + '/' + heuristic.subregexp + '/' + heuristic.sesregexp + '/' + heuristic.t1wregexp + '_????/*0001-1.dcm'
   heuristic.data=data
 
+def get_pidkey(entry):
+  import pandas as pd
+
+  if entry.pidkey:
+    key=pd.read_csv(entry.pidkey, header=None)
+  else:
+    key=pd.DataFrame()  
+
+  return key
+
+
 # Get Subject / Session Set
 def new_scans(entry):
   import os, glob, bids, json
   import subprocess
   from subprocess import PIPE
+  import pandas as pd
 
   # check time ids for all recent file transfers - if within time domain report...
   import os.path, time
@@ -169,6 +185,7 @@ def new_scans(entry):
   # pull all recent files...
   flag_newscan = False
   alltxt=""
+  key = get_pidkey(entry)
 
   for f in glob.iglob(heuristic.strexp):
     filetime = dt.datetime.fromtimestamp(os.path.getmtime(f))
@@ -178,11 +195,6 @@ def new_scans(entry):
       if 'layout' not in locals():
         bidspath = heuristic.data['Acquisition'][0]['Study'][0]['bids']
         layout = make_bidsobject(bidspath)
-
-      process = subprocess.Popen(['./accession.sh',f], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-      out, err = process.communicate()
-      out = out.strip('\n')
-      print(err)
 
       fpath = f.split('/')
       fpath = fpath[: len(fpath) - 2]
@@ -201,24 +213,40 @@ def new_scans(entry):
 
       scandate=filetime.date().strftime("%Y-%m-%d")
 
-      
-      out = out.replace('rray','')  # special rule for rray study...
-      out = out.replace('cbd','')  # special rule for cbdx study...
-      out = out.replace('cwb','')  # special rule for cwb study...
+      if key.empty:
+        process = subprocess.Popen(['./accession.sh',f], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        out, err = process.communicate()
+        out = out.strip('\n')
+        print(err)
 
-      if '/' in out:
-        pid = out.split('/')[1].zfill(subdigit)      # pull subject ID from accession number
-        if len(out.split('/')) > 2:
-          ses = out.split('/')[2]                      # pull session ID from accession number
-          ses = ses.strip('s').strip('S').zfill(sesdigit)
+        out = out.replace('rray','')  # special rule for rray study...
+        out = out.replace('cbd','')  # special rule for cbdx study...
+        out = out.replace('cwb','')  # special rule for cwb study...
+
+        if '/' in out:
+          pid = out.split('/')[1].zfill(subdigit)      # pull subject ID from accession number
+          if len(out.split('/')) > 2:
+            ses = out.split('/')[2]                      # pull session ID from accession number
+            ses = ses.strip('s').strip('S').zfill(sesdigit)
+          else:
+            ses = "none"
+        else:
+          pid = out
+          ses = "none"
+
+        if not pid:   # if pid is empty (issue with accession)
+          pid="unknown"
+
+      else:
+        index = key.index[key[1] == scannertimedate].tolist()
+        if not index:
+          continue
+        pid = str(key.loc[index[0],2])
+
+        if len(key.columns) > 3:
+          ses = key[3][index]
         else:
           ses = "none"
-      else:
-        pid = out
-        ses = "none"
-
-      if not pid:   # if pid is empty (issue with accession)
-        pid="unknown"
 
       print("Running for sub-" + pid + " ses-" + ses)
       # match image with template info
@@ -259,11 +287,6 @@ def new_scans(entry):
 def make_bidsobject(bidspath):
   import os, glob, bids, json
 
-  print("\n...Loading BIDS Object \n")
-  bids.config.set_option('extension_initial_dot', True)
-
-  layout = bids.BIDSLayout(bidspath, derivatives=False, absolute_paths=True)
-
   if not os.path.exists(bidspath) or not os.path.exists(bidspath +'/' + 'dataset_description.json'):
     os.makedirs(bidspath,exist_ok=True)
     
@@ -278,6 +301,12 @@ def make_bidsobject(bidspath):
 
     with open(bidspath + '/' + 'dataset_description.json', 'w') as outfile:
         json.dump(data, outfile, indent=2)
+
+  print("\n...Loading BIDS Object \n")
+
+  bids.config.set_option('extension_initial_dot', True)
+
+  layout = bids.BIDSLayout(bidspath, derivatives=False, absolute_paths=True)
 
   return layout
 
@@ -436,7 +465,7 @@ def nifti_convert(entry,acq_list,data):
     # run script
     slurm_outfile=imgdir+"/dcm2niix.o%j"
     slurm_errfile=imgdir+"/dcm2niix.e%j"
-    sbatchflags = "-q blanca-ics -p blanca-ics -A blanca-ics-" + studyname + " -c 2 --job-name dcm2niix --wait --time=04:00:00 --mem=16G -o " + slurm_outfile + " -e " + slurm_errfile 
+    sbatchflags = "-q preemptable -p blanca-ccn -A blanca-ics-" + studyname + " -c 2 --job-name dcm2niix --wait --time=04:00:00 --mem=16G -o " + slurm_outfile + " -e " + slurm_errfile 
     cmd = 'sbatch ' + sbatchflags + ' ' + cmdfile
 
     name = "dcm2niix-" + str(r).zfill(2)
@@ -597,7 +626,7 @@ def sendemail(emailtxt,data,entry):
   port = 465  # For SSL
   smtp_server = "smtp.gmail.com"
   sender_email = "noreply.incdata@gmail.com"  # Enter your address
-  password = "#######"   # password hashed for public access
+  password = "Buffs2021!"
 
   # get date info
   import os.path, time
@@ -641,5 +670,3 @@ if __name__ == "__main__":
     import sys
     main(sys.argv[1:])
 
-
-## END_SCRIPT
