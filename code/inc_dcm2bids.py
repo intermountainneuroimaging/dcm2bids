@@ -36,6 +36,11 @@ def print_help():
           -c --nifti-convert          (default false) run conversion to nifti for
                                       scanner dicoms. Output in bids format
           -l --subject-id-key         provide a key for M803 number and subject ids (overrides accession #)
+                                      format: (csv) column 1: run(1)/skip(0)
+                                                    column 2: dicom path (USRI/Study date and time
+                                                    column 3: subject id
+                                                    column 4: (optional) session id
+          -w --suppress-warnings      (default false) suppress warings on terminal
     ** OpenMP used for parellelized execution of XXX. Multiple cores (CPUs) 
        are recommended (XX cpus for each fmri scan).
        
@@ -58,11 +63,12 @@ def parse_arguments(argv):
     #intialize arguements
     print("\nParsing User Inputs...")
     runconvert = False
+    warns = False
     pidkey = ""
     wd=os.popen('echo $HOME/scratch').read().rstrip()
 
     try:
-      opts, args = getopt.getopt(argv,"hi:t:l:c",["template=","trange=","help","nifti-convert","subject-id-key="])
+      opts, args = getopt.getopt(argv,"hi:t:l:cw",["template=","trange=","help","nifti-convert","subject-id-key=","suppress-warnings"])
     except getopt.GetoptError:
       print_help()
       sys.exit(2)
@@ -79,7 +85,9 @@ def parse_arguments(argv):
       elif opt in ("-c","--nifti-convert"):
          runconvert = True 
       elif opt in ("-l","--subject-id-key"):  
-         pidkey = arg                            
+         pidkey = arg 
+      elif opt in ("-w","--suppress-warnings"):
+         warns = True                           
     if 'bidstemplate' not in locals():
       print_help()
       raise Exception("Missing required argument -i [--template]")
@@ -90,15 +98,16 @@ def parse_arguments(argv):
       sys.exit()
 
     class args:
-      def __init__(self, wd, bidstemplate, trange, runconvert,pidkey):
+      def __init__(self, wd, bidstemplate, trange, runconvert,warns,pidkey):
         self.wd = wd
         self.bidstemplate = bidstemplate
         self.trange = trange
         self.runconvert = runconvert
+        self.suppresswarnings = warns
         self.pidkey = pidkey
         self.templates = "/projects/amhe4269/banichlab_ldrc_preproc/inc_resources/scanner_check/v2.0/"
 
-    entry = args(wd, bidstemplate, trange, runconvert,pidkey)
+    entry = args(wd, bidstemplate, trange, runconvert,warns,pidkey)
 
     return entry
 
@@ -121,6 +130,9 @@ def worker(name,cmdfile):
 # define functions
 def list_diff(list1, list2): 
   return (list(set(list1) - set(list2))) 
+
+def last_4chars(x):
+  return(x[-4:])
 
 # load study heuristic file...
 def heuristic(entry):
@@ -162,6 +174,7 @@ def get_pidkey(entry):
 
   if entry.pidkey:
     key=pd.read_csv(entry.pidkey, header=None)
+    key.drop(key[key[0] == 0].index, inplace = True)
   else:
     key=pd.DataFrame()  
 
@@ -187,20 +200,22 @@ def new_scans(entry):
   alltxt=""
   key = get_pidkey(entry)
 
-  for f in glob.iglob(heuristic.strexp):
-    filetime = dt.datetime.fromtimestamp(os.path.getmtime(f))
+  #add entry to log
+  bidspath = heuristic.data['Acquisition'][0]['Study'][0]['bids']
+  f = open(bidspath+"/dcm2bids.key", "a")
+  f.write("Entry: "+today.strftime("%m/%d/%Y, %H:%M:%S")+"\n")
+  f.close()
 
-    if filetime.date()>= start_date:
+  files=subprocess.check_output("cd "+heuristic.scannerpath+"; find M803*/Study* -maxdepth 0 -mtime -"+entry.trange,shell=True)
+  files = files.decode().strip().split('\n')
+
+  for f in files:
       
       if 'layout' not in locals():
-        bidspath = heuristic.data['Acquisition'][0]['Study'][0]['bids']
         layout = make_bidsobject(bidspath)
 
-      fpath = f.split('/')
-      fpath = fpath[: len(fpath) - 2]
-      s='/'
-
-      ppath = s.join(fpath)
+      # ppath = s.join(fpath)
+      ppath=heuristic.scannerpath+"/"+f
       print("\nAcquisition...")
       print(ppath)
       print(" ")
@@ -209,12 +224,20 @@ def new_scans(entry):
       subdigit = heuristic.data['Acquisition'][0]['Subject'][0]['digits']
       sesdigit = heuristic.data['Acquisition'][0]['Session'][0]['digits']
       scannerID=ppath.split('/')[-2]
+      s="/"
       scannertimedate=s.join(ppath.split('/')[-2:])
 
+      filetime = dt.datetime.fromtimestamp(os.path.getmtime(ppath))
       scandate=filetime.date().strftime("%Y-%m-%d")
 
       if key.empty:
-        process = subprocess.Popen(['./accession.sh',f], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        filepath=ppath + '/' + heuristic.t1wregexp + '_????/*0001-1.dcm'
+        
+        dicomfile=subprocess.check_output("ls "+filepath,shell=True)
+        dicomfile=dicomfile.decode().strip().split('\n')
+
+        print("Pulling Subject ID from DICOM accession...")
+        process = subprocess.Popen(['./accession.sh',dicomfile[0]], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         out, err = process.communicate()
         out = out.strip('\n')
         print(err)
@@ -249,12 +272,16 @@ def new_scans(entry):
           ses = "none"
 
       print("Running for sub-" + pid + " ses-" + ses)
+      ff = open(bidspath+"/dcm2bids.key", "a")
+      ff.write("Convert sub-" + pid + " ses-" + ses+"\n")
+      ff.close()
+
       # match image with template info
       new_aquisitions = make_bidsname(entry,ppath,pid,ses,heuristic.data,layout)
 
       # convert new aquisitions to nifit
-      if entry.runconvert:
-        nifti_convert(entry,new_aquisitions,heuristic.data)
+      
+      nifti_convert(entry,new_aquisitions,heuristic.data)
 
       # generate report text
       rptext = make_textreport(study,scannertimedate,pid,ses,scandate)
@@ -351,11 +378,14 @@ def make_bidsname(entry,filepath,pid,ses,data,layout):
         directories.sort(key=os.path.getctime)
         directories = directories[-nruns:]       # if too many runs are logged, use the most recently collected set
         # raise Exception("Number of matching aquisitions exceeds expected scans")
+        
 
       elif len(directories) < nruns:
-        print("**** \n\nNumber of matching aquisitions is less than expected scans:\n" + input_regexp + "\n Expected: "+ str(nruns) + " ... Found: " + str(len(directories)) + "\n\n***")
-        warnings.warn("**** \n\nNumber of matching aquisitions is less than expected scans\n\n***")
+        if not entry.suppresswarnings:
+          print("**** \n\nNumber of matching aquisitions is less than expected scans:\n" + input_regexp + "\n Expected: "+ str(nruns) + " ... Found: " + str(len(directories)) + "\n\n***")
+          warnings.warn("**** \n\nNumber of matching aquisitions is less than expected scans\n\n***")
 
+      directories = sorted(directories, key = last_4chars) 
 
       # get match dicom name to bids name
       r=1
@@ -366,7 +396,7 @@ def make_bidsname(entry,filepath,pid,ses,data,layout):
         # pattern = "sub-{subject}/[ses-{session}/][{type}/]sub-{subject}[_ses-{session}][_task-{task}][_acq-{acquisition}][_rec-{reconstruction}][_run-{run}][_echo-{echo}][_dir-{direction}][_space-{space}][_desc-{desc}]_{suffix}.nii.gz",
 
         # Populate values for pattern
-        ent=img  # pull pattern values directly from json file... (e.g. task, aquisition, suffix)
+        ent = img.copy()  # pull pattern values directly from json file... (e.g. task, aquisition, suffix)
         
         ent['subject'] = pid
         if ses != "none":
@@ -375,10 +405,11 @@ def make_bidsname(entry,filepath,pid,ses,data,layout):
           ent['session'] = []
 
         ent['type'] = t
-        
+
         if "run" in img:
           if img["run"] == "n":
             ent['run'] = str(r).zfill(2)
+
         r = r + 1
 
         bidsfile = layout.build_path(ent, pattern, validate=False, absolute_paths=False)
@@ -414,6 +445,7 @@ def nifti_convert(entry,acq_list,data):
   for i in range(1,len(acq_list[0])):
     dicomdir = acq_list[0][i]
     bidsfile = acq_list[1][i].replace(".nii.gz","")
+    bidsname=bidsfile.split("/")[-1]
     # print(dicomdir + " to " + bidsfile)
 
     # check if output file already exists
@@ -422,11 +454,24 @@ def nifti_convert(entry,acq_list,data):
       warningstxt=warningstxt + "\n" + bidsfile + ".nii.gz" + " already exists"
       continue
 
+    # print list of aqusition + bids names
+    s="/"
+    dicomname=dicomdir.split("/")
+    dicomname=s.join(dicomname[-3:])
+
+    f = open(bidspath+"/dcm2bids.key", "a")
+    f.write(dicomname + "\t" + bidsname +"\n")
+    f.close()
+    
+
+    #check if nifti conversion should run
+    if not entry.runconvert:
+      continue
+
     # run dcm2niix on cluster...
     # call worker...
 
     # run dicom converter - pass output to bids directory
-    bidsname=bidsfile.split("/")[-1]
     subiden = [i for i in bidsname.split("_") if "sub" in i]
     sesiden = [i for i in bidsname.split("_") if "ses" in i]
 
@@ -440,7 +485,10 @@ def nifti_convert(entry,acq_list,data):
     imgdir=bidspath + "/tmp/data/bimages/" + pid + "/" + ses + "/Nifti"
     os.makedirs(imgdir, exist_ok=True)
 
-    prd_name=Path(dicomdir).stem[:-5]
+    # prd_name=Path(dicomdir).stem[:-5]
+    dicomname=dicomdir.split("/")
+    prd_name=dicomname[-1]
+    
     niftiimg = imgdir + '/' + prd_name
     
     print('Running:' + bidsfile + '.nii.gz')
@@ -476,13 +524,14 @@ def nifti_convert(entry,acq_list,data):
     r = r+1
     print(p)
 
-  for job in jobs:
-    job.join()  #wait for all distcorrepi commands to finish
+    for job in jobs:
+      job.join()  #wait for all distcorrepi commands to finish
 
   nifti_convert.warnings = nifti_convert.warnings + warningstxt
 
   # add intended for section in fieldmaps
-  intendedfor(acq_list,bidspath)
+  if entry.runconvert:
+    intendedfor(acq_list,bidspath)
 
   # END nifti_convert
 
@@ -503,6 +552,8 @@ def intendedfor(acq_list,bidspath):
   	intendedfor_list[i]=sep.join(file[-2:])
 
   if fmapfiles:  # if convert list includes fmaps
+    import time
+    time.sleep(60) #sleep 30 seconds to make sure file shows up in new location
 
     for i in fmapfiles:
 
