@@ -17,7 +17,7 @@ tempfile=NIFTI_PLACEHOLDER
 tmpdir=`dirname $tempfile`
 mkdir -p $tmpdir
 log=$tempfile.log
-cmd="dcm2niix -z y -b y -f %d y -o $tmpdir -v y $inputdicomdir"
+cmd="dcm2niix -z y -b y -f %f y -o $tmpdir -v y $inputdicomdir"
 echo $cmd >> $log
 $cmd >> $log 2>&1
 
@@ -28,6 +28,10 @@ mkdir -p $outdir
 
 mv ${tempfile}.json $bidsfile.json
 mv ${tempfile}.nii.gz $bidsfile.nii.gz
+
+ln -s $bidsfile.nii.gz ${tempfile}.nii.gz
+ln -s $bidsfile.json ${tempfile}.json
+
 if [ -f ${tempfile}.bvec ]; then mv ${tempfile}.bvec ${bidsfile}.bvec ; fi
 if [ -f ${tempfile}.bval ]; then mv ${tempfile}.bval ${bidsfile}.bval ; fi
 
