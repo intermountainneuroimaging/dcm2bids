@@ -20,6 +20,15 @@
 # [pybids]: Yarkoni et al., (2019). PyBIDS: Python tools for BIDS datasets. Journal of Open Source Software, 4(40), 1294, https://doi.org/10.21105/joss.01294
 #           Yarkoni, Tal, Markiewicz, Christopher J., de la Vega, Alejandro, Gorgolewski, Krzysztof J., Halchenko, Yaroslav O., Salo, Taylor, ? Blair, Ross. (2019, August 8). bids-standard/pybids: 0.9.3 (Version 0.9.3). Zenodo. http://doi.org/10.5281/zenodo.3363985
 #
+import os, sys, getopt, glob, re, bids, json, warnings, subprocess, multiprocessing
+from subprocess import PIPE
+from os import path
+import pandas as pd
+import os.path, time
+import datetime as dt
+from pathlib import Path
+import collections
+import smtplib, ssl
 
 # ------------------------------------------------------------------------------
 #  Show usage information for this script
@@ -55,10 +64,6 @@ def print_help():
 # ------------------------------------------------------------------------------
 
 def parse_arguments(argv):
-
-    import os
-    import sys
-    import getopt
 
     #intialize arguements
     print("\nParsing User Inputs...")
@@ -117,8 +122,6 @@ def parse_arguments(argv):
 
 def worker(name,cmdfile):
     """Executes the bash script"""
-    import subprocess
-    from subprocess import PIPE
     process = subprocess.Popen(cmdfile.split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
     output, error = process.communicate()
     print(output)
@@ -136,8 +139,6 @@ def last_4chars(x):
 
 # load study heuristic file...
 def heuristic(entry):
-  import os, glob, bids, json
-  from os import path
 
   # load study template
   with open(entry.bidstemplate) as f:
@@ -170,10 +171,11 @@ def heuristic(entry):
   heuristic.data=data
 
 def get_pidkey(entry):
-  import pandas as pd
 
   if entry.pidkey:
     key=pd.read_csv(entry.pidkey, header=None)
+    print("Using Key:")
+    print(key)
     key.drop(key[key[0] == 0].index, inplace = True)
   else:
     key=pd.DataFrame()  
@@ -183,14 +185,8 @@ def get_pidkey(entry):
 
 # Get Subject / Session Set
 def new_scans(entry):
-  import os, glob, bids, json
-  import subprocess
-  from subprocess import PIPE
-  import pandas as pd
 
   # check time ids for all recent file transfers - if within time domain report...
-  import os.path, time
-  import datetime as dt
   today = dt.datetime.now().date()
   start_date = today - dt.timedelta(days=int(entry.trange))
   print("Searching for DICOMS: " + start_date.strftime("%Y-%m-%d")  + " to " + today.strftime("%Y-%m-%d")  + "... ")
@@ -202,14 +198,15 @@ def new_scans(entry):
 
   #add entry to log
   bidspath = heuristic.data['Acquisition'][0]['Study'][0]['bids']
-  f = open(bidspath+"/dcm2bids.key", "a")
+  f = open(bidspath+"/tmp/dcm2bids.key", "a")
   f.write("Entry: "+today.strftime("%m/%d/%Y, %H:%M:%S")+"\n")
   f.close()
 
   files=subprocess.check_output("cd "+heuristic.scannerpath+"; find M803*/Study* -maxdepth 0 -mtime -"+entry.trange,shell=True)
   files = files.decode().strip().split('\n')
 
-  for f in files:
+  if files[0]:
+    for f in files:
       
       if 'layout' not in locals():
         layout = make_bidsobject(bidspath)
@@ -262,18 +259,19 @@ def new_scans(entry):
 
       else:
         index = key.index[key[1] == scannertimedate].tolist()
+        print(index)
         if not index:
           continue
         pid = str(key.loc[index[0],2])
 
         if len(key.columns) > 3:
-          ses = key[3][index]
+          ses = key[3][index[0]]
         else:
           ses = "none"
 
-      print("Running for sub-" + pid + " ses-" + ses)
-      ff = open(bidspath+"/dcm2bids.key", "a")
-      ff.write("Convert sub-" + pid + " ses-" + ses+"\n")
+      print("Running for sub-" + str(pid) + " ses-" + str(ses))
+      ff = open(bidspath+"/tmp/dcm2bids.key", "a")
+      ff.write("Convert sub-" + str(pid) + " ses-" + str(ses)+"\n")
       ff.close()
 
       # match image with template info
@@ -312,14 +310,12 @@ def new_scans(entry):
 
 
 def make_bidsobject(bidspath):
-  import os, glob, bids, json
 
   if not os.path.exists(bidspath) or not os.path.exists(bidspath +'/' + 'dataset_description.json'):
     os.makedirs(bidspath,exist_ok=True)
     
     # make dataset_description file...
-    import json
-
+    
     data = {
       'Name': 'Intermountain Neuroimaging Consortium Dataset',
       "BIDSVersion": "1.1.1",
@@ -340,7 +336,6 @@ def make_bidsobject(bidspath):
   # END make_bidsobject
 
 def make_bidsname(entry,filepath,pid,ses,data,layout):
-  import os, glob, bids, json, warnings
 
   # loop through all possible scanner images to convert (e.g. anat, func, dwi, ...)
   imgtype = ['anat', 'func', 'dwi', 'fmap']
@@ -424,11 +419,7 @@ def make_bidsname(entry,filepath,pid,ses,data,layout):
   # END make_bidsname
 
 def nifti_convert(entry,acq_list,data):
-  import os, glob, bids, json
-  from pathlib import Path
-  import subprocess
-  import multiprocessing
-
+  
   warningstxt=""
 
   if not hasattr(nifti_convert,"warnings"):
@@ -459,7 +450,7 @@ def nifti_convert(entry,acq_list,data):
     dicomname=dicomdir.split("/")
     dicomname=s.join(dicomname[-3:])
 
-    f = open(bidspath+"/dcm2bids.key", "a")
+    f = open(bidspath+"/tmp/dcm2bids.key", "a")
     f.write(dicomname + "\t" + bidsname +"\n")
     f.close()
     
@@ -536,10 +527,7 @@ def nifti_convert(entry,acq_list,data):
   # END nifti_convert
 
 def intendedfor(acq_list,bidspath):
-  import os, glob, bids, json
-  import collections
-  from pathlib import Path
-
+  
   # add intended for section in fmap json files...
   funcfiles = [i for i in acq_list[1] if "func/" in i]
   dwifiles =  [i for i in acq_list[1] if "dwi/" in i]
@@ -553,7 +541,7 @@ def intendedfor(acq_list,bidspath):
 
   if fmapfiles:  # if convert list includes fmaps
     import time
-    time.sleep(60) #sleep 30 seconds to make sure file shows up in new location
+    time.sleep(120) #sleep 30 seconds to make sure file shows up in new location
 
     for i in fmapfiles:
 
@@ -575,7 +563,6 @@ def intendedfor(acq_list,bidspath):
 
 
 def dcm_errorcheck(directories,img,modality,nruns):
-  import os, glob, bids, json
 
   # three primary error checks: missing, incomplete, duplicate runs
 
@@ -630,7 +617,6 @@ def dcm_errorcheck(directories,img,modality,nruns):
 
 
 def make_textreport(study,scannerid,pid,ses,scandate):
-  import os, glob, bids, json
 
   # store information for each subject ... run once per scan session
 
@@ -638,11 +624,11 @@ def make_textreport(study,scannerid,pid,ses,scandate):
 
   if study == "rray":
     if ses != "none":
-  	  subjecttext="Subject: r" + pid + "s" + ses
+  	  subjecttext="Subject: r" + str(pid) + "s" + str(ses)
     else:
-      subjecttext="Subject: r" + pid
+      subjecttext="Subject: r" + str(pid)
   else:
-  	subjecttext="Subject: " + pid + " Session: " + ses
+  	subjecttext="Subject: " + str(pid) + " Session: " + str(ses)
 
   reporttxt = ("Study: " + study + "\n"
                "Scannerid: " + scannerid + "\n" + subjecttext + "\n"
@@ -672,7 +658,7 @@ def make_textreport(study,scannerid,pid,ses,scandate):
 
 # set up email notification
 def sendemail(emailtxt,data,entry):
-  import smtplib, ssl
+  
 
   port = 465  # For SSL
   smtp_server = "smtp.gmail.com"
@@ -685,7 +671,7 @@ def sendemail(emailtxt,data,entry):
   today = dt.datetime.now().date()
   start_date = today - dt.timedelta(days=int(entry.trange))
 
-  # ... email text ....
+  # # ... email text ....
   studyname = data['Acquisition'][0]['Study'][0]['name']
   message = "Subject: " + "[inc_scanner_report] " + studyname + ": date range " + str(start_date) + " to " + str(today) + "\n\n" + emailtxt
 
@@ -699,8 +685,7 @@ def sendemail(emailtxt,data,entry):
 
 
 def main(argv):
-  import glob, re, os, sys, warnings
-
+  
   # get user entry
   entry = parse_arguments(argv)
 
@@ -718,6 +703,4 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    import sys
     main(sys.argv[1:])
-
